@@ -6,7 +6,6 @@ RUN dpkg --add-architecture i386 && apt-get update && apt-get install -y --no-in
     wget -qNP /etc/apt/sources.list.d/ https://dl.winehq.org/wine-builds/ubuntu/dists/noble/winehq-noble.sources && \
     apt-get update && apt-get install -y --install-recommends winehq-staging && rm -rf /var/lib/apt/lists/*
 RUN mkdir -p /app /data /opt/bootstrap /opt/winpy && \
-    wget -q https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe -O /opt/bootstrap/mt5setup.exe && \
     wget -q https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip -O /opt/bootstrap/py.zip && \
     wget -q https://bootstrap.pypa.io/get-pip.py -O /opt/bootstrap/get-pip.py
 COPY render-fn-fetch/fetch.py /app/fetch.py
