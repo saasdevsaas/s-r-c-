@@ -5,12 +5,17 @@ OUT=r'Z:\\data'; STATUS=OUT+r'\\status.json'
 def stat(**kw):
     with open(STATUS,'w',encoding='utf-8') as f: json.dump(kw,f,default=str)
 def main():
-    login=int(os.environ['FN_LOGIN']); password=os.environ['FN_PASSWORD']; server=os.environ.get('FN_SERVER','FundedNext-Server3')
+    login=int(os.environ['FN_LOGIN']); password=os.environ.get('FN_PASSWORD',''); server=os.environ.get('FN_SERVER','FundedNext-Server3')
     path=r'C:\\Program Files\\MetaTrader 5\\terminal64.exe'; symbol=os.environ.get('FN_SYMBOL','BTCUSD')
-    stat(state='initializing',server=server,symbol=symbol)
-    if not mt5.initialize(path=path,login=login,password=password,server=server,timeout=120000): raise RuntimeError('initialize failed: %r'%(mt5.last_error(),))
+    stat(state='initializing',server=server,symbol=symbol,password_supplied=bool(password))
+    if password:
+        ok=mt5.initialize(path=path,login=login,password=password,server=server,timeout=120000)
+    else:
+        ok=mt5.initialize(path=path,login=login,server=server,timeout=120000)
+        if not ok: ok=mt5.initialize(path=path,timeout=120000)
+    if not ok: raise RuntimeError('initialize failed: %r'%(mt5.last_error(),))
     ai=mt5.account_info(); ti=mt5.terminal_info()
-    if not mt5.symbol_select(symbol,True): raise RuntimeError('symbol_select failed: %r'%(mt5.last_error(),))
+    if not mt5.symbol_select(symbol,True): raise RuntimeError('symbol_select failed: %r account=%r'%(mt5.last_error(),ai))
     si=mt5.symbol_info(symbol)
     meta={k:getattr(si,k,None) for k in ['name','digits','point','trade_contract_size','volume_min','volume_max','volume_step','swap_long','swap_short','trade_tick_size','trade_tick_value']}
     meta.update({'company':getattr(ai,'company',None),'server':getattr(ai,'server',None),'connected':getattr(ti,'connected',None)})
