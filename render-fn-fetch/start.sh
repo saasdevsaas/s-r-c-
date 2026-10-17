@@ -29,8 +29,13 @@ echo '{"state":"installing_python"}' >/data/status.json
 rm -rf /opt/winpy/*; unzip -q /opt/bootstrap/py.zip -d /opt/winpy
 sed -i 's/^#import site/import site/' /opt/winpy/python311._pth
 printf '\nLib\\site-packages\n' >> /opt/winpy/python311._pth
-run_limited 60 wine /opt/winpy/python.exe Z:\\opt\\bootstrap\\get-pip.py
-run_limited 90 wine /opt/winpy/python.exe -m pip install --no-cache-dir MetaTrader5
+mkdir -p /opt/winpy/Lib/site-packages /tmp/wheels
+wget -q https://files.pythonhosted.org/packages/c5/31/7fc6239c12bce7e931463251cca4426c465e1876ba3cc785402ef4dd8f4e/numpy-2.4.6-cp311-cp311-win_amd64.whl -O /tmp/wheels/numpy.whl
+wget -q https://files.pythonhosted.org/packages/c5/46/2d85a3ea15a93123e6b4c49ff600e59c0bb9d0c3fc84462091595b76d8ff/metatrader5-5.0.6231-cp311-cp311-win_amd64.whl -O /tmp/wheels/mt5.whl
+echo '1e254a00cdf42b1e4d5b3d68d33af63268d41340d8885df2ab6470f2e1500147  /tmp/wheels/numpy.whl' | sha256sum -c -
+echo '1e0fb5e43437f426be3e5aef614f6798a918377db4cdb380593a66d1908f918d  /tmp/wheels/mt5.whl' | sha256sum -c -
+unzip -q /tmp/wheels/numpy.whl -d /opt/winpy/Lib/site-packages
+unzip -q /tmp/wheels/mt5.whl -d /opt/winpy/Lib/site-packages
 echo '{"state":"fetch_start"}' >/data/status.json
 xvfb-run -a wine /opt/winpy/python.exe Z:\\app\\fetch.py || true
 wait
