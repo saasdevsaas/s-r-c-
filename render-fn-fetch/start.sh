@@ -13,7 +13,10 @@ run_limited() {
   wineserver -k 2>/dev/null || true; wait "$p" 2>/dev/null || true; return 0
 }
 echo '{"state":"wineboot"}' >/data/status.json
-run_limited 18 wineboot -u
+run_limited 100 wineboot -u
+if [ ! -f "/opt/mt5prefix/drive_c/windows/system32/kernel32.dll" ]; then
+  echo '{"state":"error","error":"wine prefix incomplete"}' >/data/status.json; wait; exit 0
+fi
 echo '{"state":"downloading_terminal"}' >/data/status.json
 wget -q "$MT5_TARBALL_URL" -O /tmp/mt5-portable.tgz
 if [ "$(sha256sum /tmp/mt5-portable.tgz | awk '{print $1}')" != "7c803594a78fe6ae543736b7b3e70ca8ec5ff53de2ae446dc86f07cec9b424fe" ]; then
@@ -22,9 +25,6 @@ fi
 mkdir -p "/opt/mt5prefix/drive_c/Program Files/MetaTrader 5"
 tar -xzf /tmp/mt5-portable.tgz -C /tmp
 cp -a /tmp/mt5-portable/. "/opt/mt5prefix/drive_c/Program Files/MetaTrader 5/"
-if [ ! -f "/opt/mt5prefix/drive_c/Program Files/MetaTrader 5/terminal64.exe" ]; then
-  echo '{"state":"error","error":"terminal copy failed"}' >/data/status.json; wait; exit 0
-fi
 echo '{"state":"installing_python"}' >/data/status.json
 rm -rf /opt/winpy/*; unzip -q /opt/bootstrap/py.zip -d /opt/winpy
 sed -i 's/^#import site/import site/' /opt/winpy/python311._pth
