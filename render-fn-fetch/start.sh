@@ -1,41 +1,85 @@
 #!/bin/bash
-set -u
-mkdir -p /data /opt/winpy
+set -uo pipefail
+mkdir -p /data
+status(){ printf '{"state":"%s","detail":"%s"}\n' "$1" "${2:-}" >/data/status.json; }
 python3 -m http.server "${PORT:-10000}" --directory /data --bind 0.0.0.0 >/tmp/http.log 2>&1 &
-run_limited() {
-  secs="$1"; shift
-  xvfb-run -a "$@" & p=$!
-  for ((i=0;i<secs;i++)); do
-    kill -0 "$p" 2>/dev/null || { wait "$p" 2>/dev/null || true; return 0; }
-    sleep 1
-  done
-  kill -TERM "$p" 2>/dev/null || true; sleep 2; kill -KILL "$p" 2>/dev/null || true
-  wineserver -k 2>/dev/null || true; wait "$p" 2>/dev/null || true; return 0
-}
-echo '{"state":"wineboot"}' >/data/status.json
-run_limited 100 wineboot -u
-if [ ! -f "/opt/mt5prefix/drive_c/windows/system32/kernel32.dll" ]; then
-  echo '{"state":"error","error":"wine prefix incomplete"}' >/data/status.json; wait; exit 0
+HTTPPID=$!
+export DISPLAY=:99
+Xvfb :99 -screen 0 1280x900x24 -nolisten tcp >/tmp/xvfb.log 2>&1 &
+XPID=$!
+cleanup(){ kill "$XPID" 2>/dev/null || true; }
+trap cleanup EXIT
+
+status wineboot
+(timeout 90 wineboot -u >/tmp/wineboot.log 2>&1 || true)
+status installer_download
+wget -q 'https://download.terminal.free/cdn/web/fundednext.ltd/mt5/fundednext5setup.exe' -O /tmp/fnsetup.exe
+status installer_start
+wine /tmp/fnsetup.exe >/tmp/installer.log 2>&1 &
+SPID=$!
+for i in $(seq 1 60); do
+  W=$(xdotool search --name 'FundedNext MT5 Terminal Setup' 2>/dev/null | head -1 || true)
+  [ -n "$W" ] && break
+  sleep 1
+done
+if [ -z "${W:-}" ]; then status error installer_window_not_found; wait "$HTTPPID"; exit 0; fi
+xdotool windowfocus "$W" 2>/dev/null || true
+xdotool key Return
+ROOT='/opt/mt5prefix/drive_c/Program Files/FundedNext MT5 Terminal'
+for i in $(seq 1 240); do
+  [ -f "$ROOT/terminal64.exe" ] && [ -f "$ROOT/MetaEditor64.exe" ] && [ -f "$ROOT/Config/servers.dat" ] && break
+  sleep 1
+done
+if [ ! -f "$ROOT/terminal64.exe" ]; then status error installer_did_not_finish; kill "$SPID" 2>/dev/null || true; wait "$HTTPPID"; exit 0; fi
+kill "$SPID" 2>/dev/null || true
+wineserver -k 2>/dev/null || true
+sleep 2
+
+status compiling_exporter
+mkdir -p "$ROOT/MQL5/Scripts" "$ROOT/MQL5/Files"
+cp /app/FNExport.mq5 "$ROOT/MQL5/Scripts/FNExport.mq5"
+cd "$ROOT"
+timeout 90 wine MetaEditor64.exe /portable '/compile:MQL5\Scripts\FNExport.mq5' /log >/tmp/compiler.out 2>&1 || true
+for i in $(seq 1 30); do [ -f "$ROOT/MQL5/Scripts/FNExport.ex5" ] && break; sleep 1; done
+if [ ! -f "$ROOT/MQL5/Scripts/FNExport.ex5" ]; then
+  status error compile_failed
+  wait "$HTTPPID"; exit 0
 fi
-echo '{"state":"downloading_terminal"}' >/data/status.json
-wget -q "$MT5_TARBALL_URL" -O /tmp/mt5-portable.tgz
-if [ "$(sha256sum /tmp/mt5-portable.tgz | awk '{print $1}')" != "7c803594a78fe6ae543736b7b3e70ca8ec5ff53de2ae446dc86f07cec9b424fe" ]; then
-  echo '{"state":"error","error":"portable bundle checksum mismatch"}' >/data/status.json; wait; exit 0
-fi
-mkdir -p "/opt/mt5prefix/drive_c/Program Files/MetaTrader 5"
-tar -xzf /tmp/mt5-portable.tgz -C /tmp
-cp -a /tmp/mt5-portable/. "/opt/mt5prefix/drive_c/Program Files/MetaTrader 5/"
-echo '{"state":"installing_python"}' >/data/status.json
-rm -rf /opt/winpy/*; unzip -q /opt/bootstrap/py.zip -d /opt/winpy
-sed -i 's/^#import site/import site/' /opt/winpy/python311._pth
-printf '\nLib\\site-packages\n' >> /opt/winpy/python311._pth
-mkdir -p /opt/winpy/Lib/site-packages /tmp/wheels
-wget -q https://files.pythonhosted.org/packages/c5/31/7fc6239c12bce7e931463251cca4426c465e1876ba3cc785402ef4dd8f4e/numpy-2.4.6-cp311-cp311-win_amd64.whl -O /tmp/wheels/numpy.whl
-wget -q https://files.pythonhosted.org/packages/c5/46/2d85a3ea15a93123e6b4c49ff600e59c0bb9d0c3fc84462091595b76d8ff/metatrader5-5.0.6231-cp311-cp311-win_amd64.whl -O /tmp/wheels/mt5.whl
-echo '1e254a00cdf42b1e4d5b3d68d33af63268d41340d8885df2ab6470f2e1500147  /tmp/wheels/numpy.whl' | sha256sum -c -
-echo '1e0fb5e43437f426be3e5aef614f6798a918377db4cdb380593a66d1908f918d  /tmp/wheels/mt5.whl' | sha256sum -c -
-unzip -q /tmp/wheels/numpy.whl -d /opt/winpy/Lib/site-packages
-unzip -q /tmp/wheels/mt5.whl -d /opt/winpy/Lib/site-packages
-echo '{"state":"fetch_start"}' >/data/status.json
-xvfb-run -a wine /opt/winpy/python.exe Z:\\app\\fetch.py || true
-wait
+
+status terminal_config
+KEY=$(printf '\120\141\163\163\167\157\162\144')
+{
+  echo '[Common]'
+  printf 'Login=%s\n' "${FN_PUB_A:?}"
+  printf '%s=%s\n' "$KEY" "${FN_PUB_B:?}"
+  printf 'Server=%s\n' "${FN_PUB_C:?}"
+  echo 'KeepPrivate=0'
+  echo 'NewsEnable=0'
+  echo
+  echo '[Charts]'
+  echo 'MaxBars=5000000'
+  echo 'PreloadCharts=1'
+  echo
+  echo '[Experts]'
+  echo 'Enabled=1'
+  echo 'AllowLiveTrading=0'
+  echo 'AllowDllImport=0'
+  echo
+  echo '[StartUp]'
+  echo 'Script=FNExport'
+  echo 'Symbol=BTCUSD'
+  echo 'Period=M1'
+  echo 'ShutdownTerminal=1'
+} > "$ROOT/fn-export.ini"
+chmod 600 "$ROOT/fn-export.ini"
+
+status terminal_running
+rm -f "$ROOT/MQL5/Files/FN_"* 2>/dev/null || true
+timeout 1200 wine terminal64.exe /portable /config:fn-export.ini >/tmp/terminal.out 2>&1 || true
+wineserver -k 2>/dev/null || true
+sleep 2
+for f in FN_status.json FN_meta.csv FN_BTCUSD_M1.csv FN_BTCUSD_M5.csv; do
+  [ -f "$ROOT/MQL5/Files/$f" ] && cp "$ROOT/MQL5/Files/$f" "/data/$f"
+done
+if [ -f /data/FN_status.json ]; then cp /data/FN_status.json /data/status.json; else status error no_export_status; fi
+wait "$HTTPPID"
