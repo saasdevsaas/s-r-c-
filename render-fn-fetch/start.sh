@@ -17,47 +17,15 @@ wineserver -k 2>/dev/null || true
 sleep 2
 status installer_download
 wget -q 'https://download.terminal.free/cdn/web/fundednext.ltd/mt5/fundednext5setup.exe' -O /tmp/fnsetup.exe
-status installer_start
-wine /tmp/fnsetup.exe >/tmp/installer.log 2>&1 &
-SPID=$!
-W=''
-for i in $(seq 1 60); do
-  xdotool search --name '.*' getwindowname %@ 2>/dev/null > /data/windows.txt || true
-  W=$(xdotool search --name 'FundedNext MT5 Terminal Setup' 2>/dev/null | head -1 || true)
-  [ -z "$W" ] && W=$(xdotool search --class 'fundednext5setup.exe' 2>/dev/null | head -1 || true)
-  [ -z "$W" ] && W=$(xdotool search --name '.*Setup.*' 2>/dev/null | head -1 || true)
-  [ -n "$W" ] && break
-  kill -0 "$SPID" 2>/dev/null || break
-  sleep 1
-done
-if [ -z "${W:-}" ]; then
-  cp /tmp/installer.log /data/installer.log 2>/dev/null || true
-  cp /tmp/wineboot.log /data/wineboot.log 2>/dev/null || true
-  status error installer_window_not_found
-  wait "$HTTPPID"; exit 0
-fi
-status installer_window_found "$W"
-xdotool windowfocus "$W" 2>/dev/null || true
-xdotool mousemove --window "$W" 430 352 click 1 2>/dev/null || true
-xdotool key Return 2>/dev/null || true
+status installer_auto
+timeout 120 wine /tmp/fnsetup.exe /auto >/tmp/installer.log 2>&1 || true
 ROOT='/opt/mt5prefix/drive_c/Program Files/FundedNext MT5 Terminal'
-for i in $(seq 1 120); do
-  if [ -f "$ROOT/terminal64.exe" ] && [ -f "$ROOT/MetaEditor64.exe" ] && [ -f "$ROOT/Config/servers.dat" ]; then break; fi
-  if [ "$i" = 15 ] || [ "$i" = 35 ]; then
-    status installer_retry_click "attempt_$i"
-    W=$(xdotool search --name 'FundedNext MT5 Terminal Setup' 2>/dev/null | head -1 || true)
-    [ -z "$W" ] && W=$(xdotool search --class 'fundednext5setup.exe' 2>/dev/null | head -1 || true)
-    if [ -n "$W" ]; then xdotool windowfocus "$W" 2>/dev/null || true; xdotool mousemove --window "$W" 430 352 click 1 2>/dev/null || true; xdotool key Return 2>/dev/null || true; fi
-  fi
+for i in $(seq 1 30); do
+  [ -f "$ROOT/terminal64.exe" ] && [ -f "$ROOT/MetaEditor64.exe" ] && [ -f "$ROOT/Config/servers.dat" ] && break
   sleep 1
 done
-if [ ! -f "$ROOT/terminal64.exe" ]; then
-  cp /tmp/installer.log /data/installer.log 2>/dev/null || true
-  status error installer_did_not_finish
-  kill "$SPID" 2>/dev/null || true; wait "$HTTPPID"; exit 0
-fi
+if [ ! -f "$ROOT/terminal64.exe" ]; then cp /tmp/installer.log /data/installer.log 2>/dev/null || true; status error installer_did_not_finish; wait "$HTTPPID"; exit 0; fi
 status installer_complete
-kill "$SPID" 2>/dev/null || true
 wineserver -k 2>/dev/null || true
 sleep 2
 
