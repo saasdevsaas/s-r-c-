@@ -1,6 +1,10 @@
 FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive WINEDEBUG=-all WINEPREFIX=/opt/mt5prefix WINEDLLOVERRIDES=mscoree,mshtml=
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates wget unzip xvfb wine wine64 python3 && rm -rf /var/lib/apt/lists/*
+RUN dpkg --add-architecture i386 && apt-get update && apt-get install -y --no-install-recommends ca-certificates wget curl gnupg unzip xvfb python3 && \
+    mkdir -pm755 /etc/apt/keyrings && \
+    wget -qO- https://dl.winehq.org/wine-builds/winehq.key | gpg --dearmor -o /etc/apt/keyrings/winehq-archive.key && \
+    wget -qNP /etc/apt/sources.list.d/ https://dl.winehq.org/wine-builds/ubuntu/dists/noble/winehq-noble.sources && \
+    apt-get update && apt-get install -y --install-recommends winehq-staging && rm -rf /var/lib/apt/lists/*
 RUN mkdir -p /app /data /opt/winpy && \
     wget -q https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe -O /tmp/mt5setup.exe && \
     (xvfb-run -a wineboot -u || true) && \
